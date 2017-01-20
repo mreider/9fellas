@@ -1,6 +1,11 @@
 <br><div style="margin: 0px auto;text-align: center;">
 {% for appname,instances in appdicts.iteritems() %}
-{{ appname }}
+	<div style="margin-bottom:5px;margin-right:10px;">
+		<img src="static/images/{{ clouddicts.get(appname) }}.png" />
+	</div>
+	<div style="margin-bottom:5px;margin-right:10px;">
+    <a href="http://{{ appname }}">{{ appname }}</a>
+	</div>
 			{% for instance,threads in instances.iteritems() %}
         <div style="margin: 0px auto;">
 							{% for i in range(0,threads|int) %}
@@ -10,4 +15,8 @@
 			{% endfor %}
       <p>&nbsp;</p>
 {% endfor %}
+<div style="margin-bottom:5px;margin-right:10px;">
+	<a href="#" onclick="loadUrl('/clearDashboard');">clear</a>&nbsp;&nbsp;
+</div>
+
 </div>

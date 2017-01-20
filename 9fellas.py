@@ -1,61 +1,87 @@
 import os
 import json
-from threading import Thread
+from threading import Thread, current_thread
 import time
 from time import sleep
 from flask import Flask, json, render_template, request
 import redis
 from collections import OrderedDict
 import requests
-
 from Queue import Queue
+import sys
+from signal import *
 
-REGISTRAR_URL = 'http://pws-9fellas.cfapps.io/update'
+
+REGISTRAR_URL = 'http://' + os.getenv("dashboard") + '/update'
+DASHBOARD_URL = 'http://' + os.getenv("dashboard") + '?a=dashboard'
 
 app = Flask(__name__)
 port = int(os.getenv("PORT"))
 vcap = json.loads(os.environ['VCAP_SERVICES'])
+cloud = os.getenv("cloud")
+kill_queue = Queue()
 
 # for a local CF (not pivotol web services) change this next bit to svc = vcap['p-redis'][0]['credentials']
-svc = vcap['rediscloud'][0]['credentials']
+svc = ""
+try:
+    svc = vcap['rediscloud'][0]['credentials']
+except:
+    svc = vcap['p-redis'][0]['credentials']
+
 
 # for a local CF (not pivotal web services) change this next bit to
-# db = redis.StrictRedis(host=svc["host"], port=svc["port"], password=svc["password"],db=0)
-db = redis.StrictRedis(host=svc["hostname"], port=svc["port"], password=svc["password"],db=0)
+db = ""
+try:
+    db = redis.StrictRedis(host=svc["hostname"], port=svc["port"], password=svc["password"],db=0)
+except:
+    db = redis.StrictRedis(host=svc["host"], port=svc["port"], password=svc["password"],db=0)
 
-application_name = json.loads(os.environ['VCAP_APPLICATION'])['application_name']
+application_name = json.loads(os.environ['VCAP_APPLICATION'])['application_uris'][0]
 
 class Producer(Thread):
     """
     Background thread for fetching instance info
     """
-    def __init__(self,queue):
+    def __init__(self,queue,killqueue):
         """
         Constructor
         """
         Thread.__init__(self)
         self.queue = queue
+        self.killqueue = killqueue
+
     def run(self):
+        print '%s - Producer thread starting now' % (current_thread())
+
         """
-        This is the run implementation of the background thread , which fetchs the instaces info.
+        This is the run implementation of the background thread , which fetches the instance info.
         """
-        while True :
+        self.runFlag = True
+        while self.runFlag :
             try:
+                if self.killqueue.empty()==False:
+                    print '%s - Producer thread will exit.' % (current_thread())
+                    self.runFlag = False
+                    break
+
                 instance_id = os.getenv("CF_INSTANCE_INDEX")
                 mydict = db.hgetall(application_name)
                 if instance_id not in mydict :
                     self.queue.put(instance_id)
+                time.sleep(1)
             except :
                 pass
             finally:
                 pass
+        print '%s - Producer thread exit now' % (current_thread())
+
 class Consumer(Thread):
     """
-    Backgrdound thread for fetching from Queue and updating redis
+    Background thread for fetching from Queue and updating redis
     """
     def __init__(self,queue):
         """
-        Constrcutor
+        Constructor
         """
         Thread.__init__(self)
         self.queue = queue
@@ -66,8 +92,9 @@ class Consumer(Thread):
         """
         while True :
             try :
-                instance_id = self.queue.get()
+                instance_id = self.queue.get() # blocks until queue is not empty
                 db.hset(application_name,instance_id,1)
+                time.sleep(1)
             except:
                 pass
             finally:
@@ -77,13 +104,14 @@ class MasterUpdater(Thread):
     """
     This background thread will update the aggregator/registrar app at provided url
     """
-    def __init__(self,db,appname):
+    def __init__(self,db,appname,cloud):
         """
         Constructor
         """
         Thread.__init__(self)
         self.db = db
         self.appname = appname
+        self.cloud = cloud
     def run(self):
         """
         Run implementation of background thread which updates the aggregator
@@ -92,7 +120,7 @@ class MasterUpdater(Thread):
             try:
                 appinfo = self.db.hgetall(self.appname)
                 appinfo_str = json.dumps(appinfo)
-                data = {'applicationname':self.appname,'appinfo':appinfo_str}
+                data = {'applicationname':self.appname,'appinfo':appinfo_str, 'cloud':self.cloud}
                 response = requests.post(REGISTRAR_URL, data=data)
                 time.sleep(2)
             except :
@@ -107,44 +135,55 @@ def init_workers():
     All are deamon threads.
     """
     party_queue = Queue()
-    p = Producer(party_queue)
+    p = Producer(party_queue,kill_queue)
     p.daemon = True
     c = Consumer(party_queue)
     c.deamon= True
-    m = MasterUpdater(db,application_name)
+    m = MasterUpdater(db,application_name,cloud)
     m.deamon = True
     p.start()
     c.start()
     m.start()
 
-@app.route('/addthread')
-def addthread():
+@app.route('/addfella')
+def addfella():
     """
-        This endpoint is for adding threads to the application.
-        Loadbalancer decids to go for which instances and based on that thread is added to it.
+        This endpoint is for adding fellas to the application.
+        Loadbalancer decids to go for which instances and based on that fella is added to it.
     """
     instance_id = os.getenv("CF_INSTANCE_INDEX")
     print 'Instance Id ****************%s'%instance_id
-    thread_count = int(db.hget(application_name,instance_id))
-    thread_count+=1
-    print 'Threadcount ****************%s'%thread_count
-    result = db.hset(application_name,str(instance_id),str(thread_count))
-    print 'HSET result %s'%result
-    print db.hgetall(application_name)
-    return json.dumps({'message':'success'})
+    fella_count = int(db.hget(application_name,instance_id))
+    message = 'success'
+    if fella_count<9:
+        fella_count+=1
+        print 'fellacount ****************%s'%fella_count
+        result = db.hset(application_name,str(instance_id),str(fella_count))
+        print 'HSET result %s'%result
+        print db.hgetall(application_name)
+    else:
+        message = 'failed - no more fellas for instance %s'%instance_id
+        print message
 
-@app.route('/deletethread')
-def deletethread():
+    return json.dumps({'message':message})
+
+@app.route('/deletefella')
+def deletefella():
     """
-        This endpoint is for deleting threads to the application.
+        This endpoint is for deleting fellas to the application.
     """
     instance_id = os.getenv("CF_INSTANCE_INDEX")
     print 'Instance Id **************%s'%instance_id
-    thread_count = int(db.hget(application_name,instance_id))
-    thread_count-=1
-    db.hset(application_name,instance_id,thread_count)
+    fella_count = int(db.hget(application_name,instance_id))
+    message = 'success'
+    if fella_count>1:
+        fella_count-=1
+        db.hset(application_name,instance_id,fella_count)
+    else:
+        message = 'failed - must have at least one fellas for instance %s'%instance_id
+        print message
 
-    return json.dumps({'message':'success'})
+    return json.dumps({'message':message})
 
 @app.route('/update',methods=['POST'])
 def update():
@@ -154,13 +193,33 @@ def update():
     """
     appname = request.form['applicationname']
     appdetails = request.form['appinfo']
+    appcloud = request.form['cloud']
+
     obj = json.loads(appdetails)
     if appname and obj:
         db.hset('applications', appname, appdetails)
+        db.hset('clouds', appname, appcloud)
+
+    return json.dumps({'message':'success'})
+
+@app.route('/clearDashboard')
+def cleardashboard():
+    """
+    This endpoint clears the redis dashboard so it will show only currently connected clients
+    """
+    appdicts = db.hgetall('applications')
+    for appname in sorted(appdicts):
+        db.hdel('applications', appname)
+
+    clouddicts = db.hgetall('clouds')
+    for appname in sorted(clouddicts):
+        db.hdel('clouds', appname)
+
+    print 'cleared the dashboard'
     return json.dumps({'message':'success'})
 
 
-@app.route('/all-apps')
+@app.route('/dashboard')
 def applicationsdetails():
     """
     This is the endpoint for providing all info about the applications
@@ -174,22 +233,25 @@ def applicationsdetails():
         for key in sorted(instances):
             instance_map.__setitem__(key,instances.get(key))
         finaldict.__setitem__(appname,instance_map)
-    return render_template('animals_squared.html', appdicts=finaldict)
+
+    clouddicts = db.hgetall('clouds')
+    finalcloud = OrderedDict()
+    for appname in sorted(clouddicts):
+        finalcloud.__setitem__(appname, clouddicts.get(appname))
+    return render_template('animals_squared.html', appdicts=finaldict, clouddicts=finalcloud)
 
 @app.route('/instances')
 def instances():
     """
-        This will list out all the instances and threads per application.
-        An application can see only it's threads and instances.
+        This will list out all the instances and fellas per application.
+        An application can see only it's fellas and instances.
     """
     mydict = db.hgetall(application_name)
     ordered = OrderedDict()
     for key in sorted(mydict):
         ordered.__setitem__(key,mydict.get(key))
     mylist = []
-    aname = application_name.split("-")
-    cloud = aname[0]
-    return render_template('animals.html', mydict=ordered, cloud=cloud)
+    return render_template('animals.html', mydict=ordered, cloud=cloud, appname=application_name, dashboard=DASHBOARD_URL)
 
 
 @app.route('/')
@@ -199,7 +261,24 @@ def index():
     """
     return render_template('index.html')
 
-if __name__ == "__main__":
+
+def handle_cleanup(*args):
+    print 'Application exit'
+    kill_queue.put('stop')
+    instance_id = os.getenv("CF_INSTANCE_INDEX")
+    result = db.hdel(application_name,instance_id)
+    left = db.hlen(application_name)
+    print 'Instance %s Removed, Result=%s, Left=%d' % (instance_id, result, left)
+    time.sleep(1)
+    os._exit(0)
+
+
+def main():
+    for sig in (SIGABRT, SIGINT, SIGTERM):
+        signal(sig, handle_cleanup)
 
     init_workers()
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port)
+
+if __name__=='__main__':
+    main()

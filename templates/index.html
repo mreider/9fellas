@@ -12,7 +12,12 @@
 
   <script type="text/javascript"
     src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
-
+  <script type="text/javascript">
+    function loadUrl(mypage)
+    {
+      $.get(mypage);
+    }
+  </script>
 </head>
 <body>
   <div class="container">
@@ -25,8 +30,8 @@
   </div>
   <script type="text/javascript">
   function instances(){
-    {% if request.args['a'] == 'all-apps' %}
-    $.get( "/all-apps", function( data ) {
+    {% if request.args['a'] == 'dashboard' %}
+    $.get( "/dashboard", function( data ) {
     {% else  %}
     $.get( "instances", function( data ) {
     {% endif %}

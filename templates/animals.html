@@ -1,6 +1,12 @@
 <p>&nbsp;</p>
 
 <div style="margin: 0px auto;text-align: center;">
+<div style="margin-bottom:5px;margin-right:10px;">
+	<img src="static/images/{{ cloud }}.png" />
+</div>
+<div style="margin-bottom:5px;margin-right:10px;">
+	{{ appname }}
+</div>
 {% for instance,threads in mydict.iteritems() %}
 	<div style="margin-bottom:20px;margin-right:10px;">
 				{% for i in range(0,threads|int) %}
@@ -8,4 +14,10 @@
 				{% endfor %}
 		</div>
 {% endfor %}
+<div style="margin-bottom:5px;margin-right:10px;">
+	<a href="#" onclick="loadUrl('/addfella');">add</a>&nbsp;&nbsp;
+	<a href="#" onclick="loadUrl('/deletefella');">delete</a>
+</div>
+
+<a href="{{dashboard}}">Dashboard</a>
 </div>
